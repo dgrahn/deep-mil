@@ -7,7 +7,7 @@ import tensorflow.keras.layers as layers
 from easydict import EasyDict as edict
 from matplotlib.gridspec import GridSpec
 
-def baseline_model(input_shape=(28, 28, 1), output=10):
+def baseline_layers(input_shape=(28, 28, 1), output=10, mil=True):
     """Create the baseline model.
 
     Args:
@@ -17,9 +17,8 @@ def baseline_model(input_shape=(28, 28, 1), output=10):
     Returns:
         tf.keras.Sequential: The baseline model.
     """
-    return tf.keras.Sequential([
-        layers.Input(input_shape),
-        layers.Conv2D(64, 2, activation='relu', padding='same'),
+    lays = [
+        layers.Conv2D(64, 2, activation='relu', padding='same', input_shape=input_shape),
         layers.MaxPool2D(2),
         layers.Conv2D(32, 3, activation='relu'),
         layers.MaxPool2D(2),
@@ -28,7 +27,12 @@ def baseline_model(input_shape=(28, 28, 1), output=10):
         layers.Dense(256, activation='relu'),
         layers.Dropout(0.5),
         layers.Dense(output, activation='softmax'),
-    ])
+    ]
+
+    if mil:
+        return [ layers.TimeDistributed(l) for l in lays ]
+    else:
+        return lays
 
 def compile(model, n_classes):
     model.compile(
@@ -46,8 +50,18 @@ def compile(model, n_classes):
       ],
   )
 
-def evaluate(model, load_dataset, epochs=10, batch_size=64):
-  (x_train, y_train), (x_test, y_test) = load_dataset()
+def evaluate_all(define_model, title, dataset, input_shape=(28, 28, 1)):
+    histories = []
+
+    for i, (name, data) in enumerate(dataset.load_all(onehot=False).items()):
+        history = evaluate(define_model(input_shape), preprocess(data))
+        plot_history(history, title=f'{title} / {name}', keys=['loss', 'f1', 'auc'])
+        histories.append(history)
+    
+    return histories
+
+def evaluate(model, dataset, epochs=10, batch_size=64):
+  (x_train, y_train), (x_test, y_test) = dataset
   
   print('----- Data -----')
   print(f'Train : x={x_train.shape}, y={y_train.shape}')
@@ -88,24 +102,24 @@ def gpu_fix():
             raise e
 
 def load_fashion():
-  return preprocess(tf.keras.datasets.fashion_mnist.load_data)
+  return preprocess(tf.keras.datasets.fashion_mnist.load_data())
 
 def load_mnist():
-  return preprocess(tf.keras.datasets.mnist.load_data)
+  return preprocess(tf.keras.datasets.mnist.load_data())
 
 def load_cifar10():
-  return preprocess(tf.keras.datasets.cifar10.load_data)
+  return preprocess(tf.keras.datasets.cifar10.load_data())
 
 def preprocess(load_dataset):
     # Load the dataset
-    (x_train, y_train), (x_test, y_test) = load_dataset()
+    (x_train, y_train), (x_test, y_test) = load_dataset
 
     # Add dimension if necessary
-    if len(x_train.shape) == 3:
+    if x_train.shape[-1] != 3:
         x_train = x_train[..., np.newaxis]
         x_test = x_test[..., np.newaxis]
     
-    # Convet inputs from 0..255 to 0..1
+    # Convert inputs from 0..255 to 0..1
     x_train = x_train / 255
     x_test = x_test / 255
 
@@ -180,5 +194,25 @@ def plot_history(history, title='History', keys=['loss', 'f1']):
         axes[i].set_xlabel('Epochs')
 
     fig.suptitle(title, fontweight='bold')
+    plt.show()
+    plt.close()
+
+def plot_histories(histories, title='Histories', keys=['loss', 'f1', 'auc'], filename=None):
+    fig, axes = plt.subplots(nrows=1, ncols=len(keys), figsize=(len(keys) * 4, 4))
+    
+    def get_val(k):
+      return np.mean([ np.vstack(h.history[k]).mean(axis=1) for h in histories ], axis=0)
+
+    for i, (ax, key) in enumerate(zip(axes, keys)):
+        
+        axes[i].plot(histories[0].epoch, get_val(key))
+        axes[i].plot(histories[0].epoch, get_val(f'val_{key}'))
+        axes[i].legend(['Train', 'Test'])
+        axes[i].set_title(key.title())
+        axes[i].set_xlabel('Epochs')
+
+    fig.suptitle(title, fontweight='bold')
+
+    if filename: plt.savefig(filename, dpi=1000)
     plt.show()
     plt.close()

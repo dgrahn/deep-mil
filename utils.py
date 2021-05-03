@@ -43,10 +43,6 @@ def compile(model, n_classes):
           tf.metrics.Recall(name='recall'),
           tf.metrics.AUC(name='auc'),
           tfa.metrics.F1Score(n_classes, name='f1'),
-          tf.metrics.TruePositives(name='tp'),
-          tf.metrics.TrueNegatives(name='tn'),
-          tf.metrics.FalsePositives(name='fp'),
-          tf.metrics.FalseNegatives(name='fn'),
       ],
   )
 
@@ -60,7 +56,7 @@ def evaluate_all(define_model, title, dataset, input_shape=(28, 28, 1)):
     
     return histories
 
-def evaluate(model, dataset, epochs=10, batch_size=64):
+def evaluate(model, dataset, epochs=10, batch_size=32):
   (x_train, y_train), (x_test, y_test) = dataset
   
   print('----- Data -----')
@@ -69,17 +65,32 @@ def evaluate(model, dataset, epochs=10, batch_size=64):
   print(f'Splits: train={y_train.sum(axis=0).astype(int)}, test={y_test.sum(axis=0).astype(int)}')
   print('----------------') 
 
-  return model.fit(
+  history = model.fit(
       x_train, y_train,
       callbacks=[ tf.keras.callbacks.EarlyStopping(
           monitor='val_loss',
-          patience=5,
+          patience=10,
           restore_best_weights=True
       ) ],
       validation_data=(x_test, y_test),
       epochs=epochs,
       batch_size=batch_size,
   )
+
+  tf.keras.backend.clear_session()
+
+  return history
+
+def disable_gpus():
+    try:
+        # Disable all GPUS
+        tf.config.set_visible_devices([], 'GPU')
+        visible_devices = tf.config.get_visible_devices()
+        for device in visible_devices:
+            assert device.device_type != 'GPU'
+    except:
+        # Invalid device or cannot modify virtual devices once initialized.
+        pass
 
 def gpu_fix():
     """Fixes GPUs for windows.
@@ -110,9 +121,9 @@ def load_mnist():
 def load_cifar10():
   return preprocess(tf.keras.datasets.cifar10.load_data())
 
-def preprocess(load_dataset):
+def preprocess(dataset, noise=None):
     # Load the dataset
-    (x_train, y_train), (x_test, y_test) = load_dataset
+    (x_train, y_train), (x_test, y_test) = dataset
 
     # Add dimension if necessary
     if x_train.shape[-1] != 3:
@@ -122,6 +133,12 @@ def preprocess(load_dataset):
     # Convert inputs from 0..255 to 0..1
     x_train = x_train / 255
     x_test = x_test / 255
+
+    # Add noise
+    if noise:
+        y_train = y_train.astype(int)
+        mask = np.random.rand(y_train.shape[0]) <= noise
+        y_train[mask] = y_train[mask]^1
 
     # Convert outputs to one hot
     y_train = tf.one_hot(y_train, y_train.max() + 1).numpy().squeeze()
@@ -193,7 +210,9 @@ def plot_history(history, title='History', keys=['loss', 'f1']):
         axes[i].set_title(key.title())
         axes[i].set_xlabel('Epochs')
 
+    filename = 'img/details/' + title.lower().replace(' ', '').replace('/', '_') + '.jpg'
     fig.suptitle(title, fontweight='bold')
+    plt.savefig(filename, dpi=250)
     plt.show()
     plt.close()
 
@@ -203,13 +222,18 @@ def plot_histories(histories, title='Histories', keys=['loss', 'f1', 'auc'], fil
     def get_val(k):
       return np.mean([ np.vstack(h.history[k]).mean(axis=1) for h in histories ], axis=0)
 
+    print(f'----- {title} -----')
     for i, (ax, key) in enumerate(zip(axes, keys)):
+        trn_val = get_val(key)
+        tst_val = get_val(f'val_{key}')
+        print(f'{key:>10}: train={trn_val.max():.3f}, test={tst_val.max():.3f}')
         
-        axes[i].plot(histories[0].epoch, get_val(key))
-        axes[i].plot(histories[0].epoch, get_val(f'val_{key}'))
+        axes[i].plot(histories[0].epoch, trn_val)
+        axes[i].plot(histories[0].epoch, tst_val)
         axes[i].legend(['Train', 'Test'])
         axes[i].set_title(key.title())
         axes[i].set_xlabel('Epochs')
+    print('-------------------------')
 
     fig.suptitle(title, fontweight='bold')
 

@@ -1,8 +1,8 @@
 # Deep Multiple-Instance Learning Techniques
 
 This repository contains notesbooks and code files which may
-be used to replicate the results from *Evaluation of Deep
-Multiple-Instance Learning Techniques in TensorFlow 2*.
+be used to replicate the results from *mil-benchmarks: Standardized Evaluation
+of Deep Multiple-Instance Learning Techniques*.
 
 ## Notebooks
 
